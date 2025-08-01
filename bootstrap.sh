@@ -219,6 +219,9 @@ network:
           - 8.8.8.8
 EOF
 
+# Set proper permissions for netplan config
+chmod 600 /etc/netplan/01-thinkube.yaml
+
 log_info "Applying network configuration..."
 log_warn "Your connection may drop when the IP changes from $CURRENT_IP to $STATIC_IP"
 echo "If disconnected, reconnect using: ssh $SYSTEM_USER@$STATIC_IP"
