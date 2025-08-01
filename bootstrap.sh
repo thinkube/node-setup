@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.1.2"
+VERSION="0.1.3"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -299,16 +299,9 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
             apt-get update
         fi
     fi
-
-    # Install compatibility library for Ubuntu 24.04
-    log_info "Installing OpenSSL compatibility library for Ubuntu 24.04..."
-    
-    # Download and install libssl1.1 which ZeroTier needs
-    wget -q http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb
-    dpkg -i libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb || apt-get install -f -y
-    rm -f libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb
     
     # Use the official installation method
+    log_info "Installing ZeroTier using official installer..."
     curl -s https://install.zerotier.com | bash || {
         log_error "Failed to install ZeroTier using official installer"
         log_info "Trying alternative method..."
