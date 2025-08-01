@@ -1,13 +1,26 @@
 #!/bin/bash
-# Thinkube Node Bootstrap Script - Simplified
-# Prepares Ubuntu nodes for remote Thinkube installation via ZeroTier
+# Thinkube Node Bootstrap Script
+# Prepares Ubuntu nodes for Thinkube installation
 # 
-# Usage: curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash
+# Usage: 
+#   With ZeroTier:    curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash
+#   Without ZeroTier: curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash -s -- --no-zerotier
 
 set -e
 
 # Script version
-VERSION="1.0.0"
+VERSION="1.1.0"
+
+# Parse arguments
+INSTALL_ZEROTIER=true
+for arg in "$@"; do
+    case $arg in
+        --no-zerotier)
+            INSTALL_ZEROTIER=false
+            shift
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -105,6 +118,12 @@ echo "╔═══════════════════════�
 echo "║        Thinkube Node Bootstrap v${VERSION}              ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
+if [ "$INSTALL_ZEROTIER" = true ]; then
+    echo "Mode: With ZeroTier (for remote access)"
+else
+    echo "Mode: Local only (no ZeroTier)"
+fi
+echo
 
 log_info "Detected configuration:"
 echo "  Hostname:     $CURRENT_HOSTNAME"
@@ -179,32 +198,34 @@ if ! ping -c 1 8.8.8.8 &>/dev/null; then
     log_warn "Network connectivity test failed. You may need to reconnect using the new IP: $STATIC_IP"
 fi
 
-# Now ask for ZeroTier
-log_step "ZeroTier Configuration"
-echo "You'll need:"
-echo "  - ZeroTier Network ID (16 characters)"
-echo "  - ZeroTier API Token (from my.zerotier.com)"
-echo
+# ZeroTier configuration (if enabled)
+if [ "$INSTALL_ZEROTIER" = true ]; then
+    log_step "ZeroTier Configuration"
+    echo "You'll need:"
+    echo "  - ZeroTier Network ID (16 characters)"
+    echo "  - ZeroTier API Token (from my.zerotier.com)"
+    echo
 
-read -p "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
-while [[ ${#ZEROTIER_NETWORK_ID} -ne 16 ]]; then
-    log_error "Network ID must be 16 characters"
     read -p "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
-done
+    while [[ ${#ZEROTIER_NETWORK_ID} -ne 16 ]]; then
+        log_error "Network ID must be 16 characters"
+        read -p "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
+    done
 
-read -s -p "ZeroTier API Token: " ZEROTIER_API_TOKEN
-echo
-while [[ -z "$ZEROTIER_API_TOKEN" ]]; then
-    log_error "API Token cannot be empty"
     read -s -p "ZeroTier API Token: " ZEROTIER_API_TOKEN
     echo
-done
+    while [[ -z "$ZEROTIER_API_TOKEN" ]]; then
+        log_error "API Token cannot be empty"
+        read -s -p "ZeroTier API Token: " ZEROTIER_API_TOKEN
+        echo
+    done
 
-read -p "ZeroTier IP for this node: " ZEROTIER_IP
-while ! [[ "$ZEROTIER_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-    log_error "Invalid IP format"
     read -p "ZeroTier IP for this node: " ZEROTIER_IP
-done
+    while ! [[ "$ZEROTIER_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        log_error "Invalid IP format"
+        read -p "ZeroTier IP for this node: " ZEROTIER_IP
+    done
+fi
 
 # Phase 1: Install required packages
 log_step "Installing required packages"
@@ -228,42 +249,44 @@ ufw allow ssh
 ufw allow 9993/udp  # ZeroTier
 echo "y" | ufw enable || true
 
-# Phase 3: Install ZeroTier
-log_step "Installing ZeroTier"
+# Phase 3: Install ZeroTier (if enabled)
+if [ "$INSTALL_ZEROTIER" = true ]; then
+    log_step "Installing ZeroTier"
 
-curl -s 'https://raw.githubusercontent.com/zerotier/ZeroTierOne/master/doc/contact%40zerotier.com.gpg' | gpg --dearmor > /usr/share/keyrings/zerotier.gpg
-echo 'deb [signed-by=/usr/share/keyrings/zerotier.gpg] https://download.zerotier.com/debian/buster buster main' > /etc/apt/sources.list.d/zerotier.list
-apt-get update
-apt-get install -y zerotier-one
+    curl -s 'https://raw.githubusercontent.com/zerotier/ZeroTierOne/master/doc/contact%40zerotier.com.gpg' | gpg --dearmor > /usr/share/keyrings/zerotier.gpg
+    echo 'deb [signed-by=/usr/share/keyrings/zerotier.gpg] https://download.zerotier.com/debian/buster buster main' > /etc/apt/sources.list.d/zerotier.list
+    apt-get update
+    apt-get install -y zerotier-one
 
-systemctl enable zerotier-one
-systemctl start zerotier-one
-sleep 5
+    systemctl enable zerotier-one
+    systemctl start zerotier-one
+    sleep 5
 
-# Join network
-zerotier-cli join "$ZEROTIER_NETWORK_ID"
-ZEROTIER_NODE_ID=$(zerotier-cli info | cut -d' ' -f3)
+    # Join network
+    zerotier-cli join "$ZEROTIER_NETWORK_ID"
+    ZEROTIER_NODE_ID=$(zerotier-cli info | cut -d' ' -f3)
 
-# Phase 4: Authorize node
-log_step "Authorizing node in ZeroTier"
+    # Phase 4: Authorize node
+    log_step "Authorizing node in ZeroTier"
 
-AUTH_RESPONSE=$(curl -s -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
-  -H "Authorization: Bearer ${ZEROTIER_API_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "'${CURRENT_HOSTNAME}'",
-    "description": "Thinkube node",
-    "config": {
-      "authorized": true,
-      "ipAssignments": ["'${ZEROTIER_IP}'"],
-      "noAutoAssignIps": true
-    }
-  }')
+    AUTH_RESPONSE=$(curl -s -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
+      -H "Authorization: Bearer ${ZEROTIER_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "'${CURRENT_HOSTNAME}'",
+        "description": "Thinkube node",
+        "config": {
+          "authorized": true,
+          "ipAssignments": ["'${ZEROTIER_IP}'"],
+          "noAutoAssignIps": true
+        }
+      }')
 
-if [[ $? -eq 0 ]]; then
-    log_info "Node authorized successfully"
-else
-    log_warn "Failed to authorize automatically - please authorize manually in ZeroTier Central"
+    if [[ $? -eq 0 ]]; then
+        log_info "Node authorized successfully"
+    else
+        log_warn "Failed to authorize automatically - please authorize manually in ZeroTier Central"
+    fi
 fi
 
 # Phase 5: Configure user for Ansible
@@ -300,9 +323,10 @@ SUBNET_PREFIX=${SUBNET_PREFIX}
 GATEWAY=${GATEWAY_IP}
 DNS_SERVER=${CURRENT_DNS}
 SYSTEM_USER=${SYSTEM_USER}
-ZEROTIER_NETWORK_ID=${ZEROTIER_NETWORK_ID}
-ZEROTIER_NODE_ID=${ZEROTIER_NODE_ID}
-ZEROTIER_IP=${ZEROTIER_IP}
+ZEROTIER_ENABLED=${INSTALL_ZEROTIER}
+ZEROTIER_NETWORK_ID=${ZEROTIER_NETWORK_ID:-none}
+ZEROTIER_NODE_ID=${ZEROTIER_NODE_ID:-none}
+ZEROTIER_IP=${ZEROTIER_IP:-none}
 BOOTSTRAP_VERSION=${VERSION}
 EOF
 
@@ -311,8 +335,10 @@ chmod 600 /etc/thinkube-bootstrap.conf
 # Final verification
 log_step "Verification"
 
-# Wait for ZeroTier
-sleep 10
+# Wait for ZeroTier if installed
+if [ "$INSTALL_ZEROTIER" = true ]; then
+    sleep 10
+fi
 
 # Show status
 echo
@@ -323,16 +349,25 @@ echo
 echo "Node Information:"
 echo "  Hostname:         $CURRENT_HOSTNAME"
 echo "  Static IP:        $STATIC_IP"
-echo "  ZeroTier IP:      $ZEROTIER_IP"
-echo "  ZeroTier Node:    $ZEROTIER_NODE_ID"
 echo "  SSH User:         $SYSTEM_USER"
-echo
-echo "ZeroTier Status:"
-zerotier-cli listnetworks
-echo
-echo "Next Steps:"
-echo "1. Verify ZeroTier shows 'OK' status above"
-echo "2. From a ZeroTier-connected machine:"
-echo "   ssh $SYSTEM_USER@$ZEROTIER_IP"
-echo "3. Run Thinkube installer using this user"
+
+if [ "$INSTALL_ZEROTIER" = true ]; then
+    echo "  ZeroTier IP:      $ZEROTIER_IP"
+    echo "  ZeroTier Node:    $ZEROTIER_NODE_ID"
+    echo
+    echo "ZeroTier Status:"
+    zerotier-cli listnetworks
+    echo
+    echo "Next Steps:"
+    echo "1. Verify ZeroTier shows 'OK' status above"
+    echo "2. From a ZeroTier-connected machine:"
+    echo "   ssh $SYSTEM_USER@$ZEROTIER_IP"
+    echo "3. Run Thinkube installer using this user"
+else
+    echo
+    echo "Next Steps:"
+    echo "1. From a machine on the same network:"
+    echo "   ssh $SYSTEM_USER@$STATIC_IP"
+    echo "2. Run Thinkube installer"
+fi
 echo
