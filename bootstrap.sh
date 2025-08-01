@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -286,18 +286,52 @@ echo "y" | ufw enable || true
 if [ "$INSTALL_ZEROTIER" = true ]; then
     log_step "Installing ZeroTier"
 
-    curl -s 'https://raw.githubusercontent.com/zerotier/ZeroTierOne/master/doc/contact%40zerotier.com.gpg' | gpg --dearmor > /usr/share/keyrings/zerotier.gpg
-    echo 'deb [signed-by=/usr/share/keyrings/zerotier.gpg] https://download.zerotier.com/debian/buster buster main' > /etc/apt/sources.list.d/zerotier.list
-    apt-get update
-    apt-get install -y zerotier-one
-
+    # Use the official installation method that works on Ubuntu 24.04
+    curl -s https://install.zerotier.com | bash || {
+        log_error "Failed to install ZeroTier using official installer"
+        log_info "Trying alternative method..."
+        
+        # Alternative method if the official installer fails
+        curl -s 'https://raw.githubusercontent.com/zerotier/ZeroTierOne/master/doc/contact%40zerotier.com.gpg' | gpg --dearmor > /usr/share/keyrings/zerotier.gpg
+        echo 'deb [signed-by=/usr/share/keyrings/zerotier.gpg] https://download.zerotier.com/debian/jammy jammy main' > /etc/apt/sources.list.d/zerotier.list
+        apt-get update
+        apt-get install -y zerotier-one
+    }
+    
+    # Give the service time to create its files
+    sleep 2
+    
+    # Enable and start the service
+    systemctl daemon-reload
     systemctl enable zerotier-one
-    systemctl start zerotier-one
-    sleep 5
+    systemctl start zerotier-one || {
+        log_error "Failed to start ZeroTier service"
+        log_info "Trying to diagnose the issue..."
+        systemctl status zerotier-one --no-pager || true
+        journalctl -xeu zerotier-one --no-pager -n 20 || true
+        exit 1
+    }
+    
+    # Wait for service to be ready
+    log_info "Waiting for ZeroTier service to start..."
+    for i in {1..10}; do
+        if systemctl is-active --quiet zerotier-one; then
+            log_info "ZeroTier service is active"
+            break
+        fi
+        sleep 1
+    done
 
     # Join network
-    zerotier-cli join "$ZEROTIER_NETWORK_ID"
+    log_info "Joining ZeroTier network..."
+    zerotier-cli join "$ZEROTIER_NETWORK_ID" || {
+        log_error "Failed to join ZeroTier network"
+        exit 1
+    }
+    
+    # Get node ID
     ZEROTIER_NODE_ID=$(zerotier-cli info | cut -d' ' -f3)
+    log_info "ZeroTier Node ID: $ZEROTIER_NODE_ID"
 
     # Phase 4: Authorize node
     log_step "Authorizing node in ZeroTier"
@@ -389,13 +423,25 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
     echo "  ZeroTier Node:    $ZEROTIER_NODE_ID"
     echo
     echo "ZeroTier Status:"
-    zerotier-cli listnetworks
+    zerotier-cli listnetworks || {
+        log_error "ZeroTier CLI not working. The service may need manual intervention."
+        echo "Try running: sudo systemctl restart zerotier-one"
+    }
     echo
+    
+    # Verify everything is working
+    if zerotier-cli listnetworks | grep -q "$ZEROTIER_NETWORK_ID"; then
+        log_info "✓ Successfully joined ZeroTier network"
+    else
+        log_warn "⚠ ZeroTier network join may be pending"
+    fi
+    
     echo "Next Steps:"
     echo "1. Verify ZeroTier shows 'OK' status above"
-    echo "2. From a ZeroTier-connected machine:"
+    echo "2. If status is 'REQUESTING_CONFIGURATION', authorize this node in ZeroTier Central"
+    echo "3. From a ZeroTier-connected machine:"
     echo "   ssh $SYSTEM_USER@$ZEROTIER_IP"
-    echo "3. Run Thinkube installer using this user"
+    echo "4. Run Thinkube installer"
 else
     echo
     echo "Next Steps:"
