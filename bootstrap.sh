@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="1.1.1"
+VERSION="0.1.0"
 
 # Function to read input that works with piped scripts
 read_input() {
