@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.2.0"
+VERSION="0.2.1"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -353,7 +353,8 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
 
     log_info "Attempting to authorize node with IP ${ZEROTIER_IP}..."
     
-    AUTH_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
+    # Use curl with separate output for body and headers
+    AUTH_RESPONSE=$(curl -s -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
       -H "Authorization: Bearer ${ZEROTIER_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d '{
@@ -364,17 +365,33 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
           "ipAssignments": ["'${ZEROTIER_IP}'"],
           "noAutoAssignIps": true
         }
-      }')
+      }' \
+      -w "\nHTTP_STATUS_CODE:%{http_code}")
 
-    HTTP_CODE=$(echo "$AUTH_RESPONSE" | tail -1)
-    RESPONSE_BODY=$(echo "$AUTH_RESPONSE" | sed '$d')
+    # Extract status code
+    HTTP_CODE=$(echo "$AUTH_RESPONSE" | grep "HTTP_STATUS_CODE:" | cut -d: -f2)
+    RESPONSE_BODY=$(echo "$AUTH_RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
 
-    if [[ "$HTTP_CODE" == "200" ]]; then
+    # Check if successful (200 or 201)
+    if [[ "$HTTP_CODE" == "200" ]] || [[ "$HTTP_CODE" == "201" ]]; then
         log_info "✓ Node authorized successfully with IP ${ZEROTIER_IP}"
         ZEROTIER_AUTHORIZED=true
+        
+        # Wait a moment for the authorization to propagate
+        sleep 3
+        
+        # Verify the node is actually authorized
+        if zerotier-cli listnetworks | grep -q "OK"; then
+            log_info "✓ ZeroTier network status confirmed as OK"
+        else
+            log_warn "Authorization successful but network still showing REQUESTING_CONFIGURATION"
+            log_info "This is normal - it may take a few moments to update"
+        fi
     else
         log_error "Failed to authorize node automatically (HTTP ${HTTP_CODE})"
-        log_info "Response: ${RESPONSE_BODY}"
+        if [[ -n "$RESPONSE_BODY" ]]; then
+            log_info "Response: ${RESPONSE_BODY}"
+        fi
         log_warn "You must manually authorize this node in ZeroTier Central"
         log_warn "Node ID: ${ZEROTIER_NODE_ID}"
         ZEROTIER_AUTHORIZED=false
@@ -449,19 +466,38 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
     echo "  ZeroTier IP:      $ZEROTIER_IP"
     echo "  ZeroTier Node:    $ZEROTIER_NODE_ID"
     echo
-    echo "ZeroTier Status:"
-    zerotier-cli listnetworks || {
-        log_error "ZeroTier CLI not working. The service may need manual intervention."
-        echo "Try running: sudo systemctl restart zerotier-one"
-    }
-    echo
+    echo "ZeroTier Network Status:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    # Verify everything is working
-    if zerotier-cli listnetworks | grep -q "$ZEROTIER_NETWORK_ID"; then
-        log_info "✓ Successfully joined ZeroTier network"
+    # Get and parse the network status
+    NETWORK_STATUS=$(zerotier-cli listnetworks 2>/dev/null | grep "$ZEROTIER_NETWORK_ID" || echo "")
+    
+    if [[ -n "$NETWORK_STATUS" ]]; then
+        # Parse the status (it's the 6th field)
+        STATUS_FIELD=$(echo "$NETWORK_STATUS" | awk '{print $6}')
+        ASSIGNED_IP=$(echo "$NETWORK_STATUS" | awk '{print $9}')
+        
+        case "$STATUS_FIELD" in
+            "OK")
+                log_info "✅ Network Status: CONNECTED AND AUTHORIZED"
+                log_info "✅ Assigned IP: $ASSIGNED_IP"
+                ;;
+            "REQUESTING_CONFIGURATION")
+                log_warn "⏳ Network Status: REQUESTING_CONFIGURATION"
+                log_warn "   Node needs to be authorized in ZeroTier Central"
+                ;;
+            "ACCESS_DENIED")
+                log_error "❌ Network Status: ACCESS_DENIED"
+                log_error "   Node was not authorized or was deauthorized"
+                ;;
+            *)
+                log_warn "⚠️  Network Status: $STATUS_FIELD"
+                ;;
+        esac
     else
-        log_warn "⚠ ZeroTier network join may be pending"
+        log_error "Failed to get ZeroTier network status"
     fi
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     echo "Next Steps:"
     if [ "$ZEROTIER_AUTHORIZED" = true ]; then
