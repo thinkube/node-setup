@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.1.3"
+VERSION="0.2.0"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -351,7 +351,9 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
     # Phase 4: Authorize node
     log_step "Authorizing node in ZeroTier"
 
-    AUTH_RESPONSE=$(curl -s -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
+    log_info "Attempting to authorize node with IP ${ZEROTIER_IP}..."
+    
+    AUTH_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.zerotier.com/api/v1/network/${ZEROTIER_NETWORK_ID}/member/${ZEROTIER_NODE_ID}" \
       -H "Authorization: Bearer ${ZEROTIER_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d '{
@@ -364,10 +366,18 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
         }
       }')
 
-    if [[ $? -eq 0 ]]; then
-        log_info "Node authorized successfully"
+    HTTP_CODE=$(echo "$AUTH_RESPONSE" | tail -1)
+    RESPONSE_BODY=$(echo "$AUTH_RESPONSE" | sed '$d')
+
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        log_info "✓ Node authorized successfully with IP ${ZEROTIER_IP}"
+        ZEROTIER_AUTHORIZED=true
     else
-        log_warn "Failed to authorize automatically - please authorize manually in ZeroTier Central"
+        log_error "Failed to authorize node automatically (HTTP ${HTTP_CODE})"
+        log_info "Response: ${RESPONSE_BODY}"
+        log_warn "You must manually authorize this node in ZeroTier Central"
+        log_warn "Node ID: ${ZEROTIER_NODE_ID}"
+        ZEROTIER_AUTHORIZED=false
     fi
 fi
 
@@ -420,6 +430,8 @@ log_step "Verification"
 # Wait for ZeroTier if installed
 if [ "$INSTALL_ZEROTIER" = true ]; then
     sleep 10
+    # Set default if not set
+    ZEROTIER_AUTHORIZED=${ZEROTIER_AUTHORIZED:-false}
 fi
 
 # Show status
@@ -452,11 +464,22 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
     fi
     
     echo "Next Steps:"
-    echo "1. Verify ZeroTier shows 'OK' status above"
-    echo "2. If status is 'REQUESTING_CONFIGURATION', authorize this node in ZeroTier Central"
-    echo "3. From a ZeroTier-connected machine:"
-    echo "   ssh $SYSTEM_USER@$ZEROTIER_IP"
-    echo "4. Run Thinkube installer"
+    if [ "$ZEROTIER_AUTHORIZED" = true ]; then
+        echo "1. This node is ready for Thinkube installation"
+        echo "2. From your installer machine (with ZeroTier access):"
+        echo "   - Run the Thinkube installer"
+        echo "   - When discovering nodes, use ZeroTier IP: $ZEROTIER_IP"
+        echo "   - SSH user: $SYSTEM_USER"
+    else
+        echo "1. Authorize this node in ZeroTier Central:"
+        echo "   - Go to https://my.zerotier.com"
+        echo "   - Find node ID: $ZEROTIER_NODE_ID"
+        echo "   - Click the checkbox to authorize"
+        echo "   - Assign IP: $ZEROTIER_IP"
+        echo "2. Once authorized, from your installer machine:"
+        echo "   - Run the Thinkube installer"
+        echo "   - Use this node's ZeroTier IP: $ZEROTIER_IP"
+    fi
 else
     echo
     echo "Next Steps:"
