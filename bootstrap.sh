@@ -3,13 +3,48 @@
 # Prepares Ubuntu nodes for Thinkube installation
 # 
 # Usage: 
-#   With ZeroTier:    curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash
-#   Without ZeroTier: curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash -s -- --no-zerotier
+#   With ZeroTier:    curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | sudo bash
+#   Without ZeroTier: curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | sudo bash -s -- --no-zerotier
 
 set -e
 
 # Script version
-VERSION="1.1.0"
+VERSION="1.1.1"
+
+# Function to read input that works with piped scripts
+read_input() {
+    local prompt="$1"
+    local varname="$2"
+    local value
+    
+    echo -n "$prompt"
+    if [ -t 0 ]; then
+        read value
+    else
+        read value </dev/tty
+    fi
+    
+    eval "$varname='$value'"
+}
+
+# Function to read password (hidden input)
+read_password() {
+    local prompt="$1"
+    local varname="$2"
+    local value
+    
+    echo -n "$prompt"
+    stty -echo 2>/dev/null || true
+    if [ -t 0 ]; then
+        read value
+    else
+        read value </dev/tty
+    fi
+    stty echo 2>/dev/null || true
+    echo
+    
+    eval "$varname='$value'"
+}
 
 # Parse arguments
 INSTALL_ZEROTIER=true
@@ -153,10 +188,10 @@ echo
 echo "You need to assign a static IP outside your DHCP range."
 echo "Common static IP ranges: 192.168.1.10-30, 192.168.1.200-254"
 echo
-read -p "Enter static IP address for this node: " STATIC_IP
-while ! [[ "$STATIC_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+read_input "Enter static IP address for this node: " STATIC_IP
+while ! [[ "$STATIC_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; do
     log_error "Invalid IP format"
-    read -p "Enter static IP address for this node: " STATIC_IP
+    read_input "Enter static IP address for this node: " STATIC_IP
 done
 
 # Backup existing netplan
@@ -188,7 +223,7 @@ log_info "Applying network configuration..."
 log_warn "Your connection may drop when the IP changes from $CURRENT_IP to $STATIC_IP"
 echo "If disconnected, reconnect using: ssh $SYSTEM_USER@$STATIC_IP"
 echo
-read -p "Press Enter to continue..." 
+read_input "Press Enter to continue..." _dummy 
 
 netplan apply
 
@@ -206,24 +241,22 @@ if [ "$INSTALL_ZEROTIER" = true ]; then
     echo "  - ZeroTier API Token (from my.zerotier.com)"
     echo
 
-    read -p "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
-    while [[ ${#ZEROTIER_NETWORK_ID} -ne 16 ]]; then
+    read_input "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
+    while [[ ${#ZEROTIER_NETWORK_ID} -ne 16 ]]; do
         log_error "Network ID must be 16 characters"
-        read -p "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
+        read_input "ZeroTier Network ID: " ZEROTIER_NETWORK_ID
     done
 
-    read -s -p "ZeroTier API Token: " ZEROTIER_API_TOKEN
-    echo
-    while [[ -z "$ZEROTIER_API_TOKEN" ]]; then
+    read_password "ZeroTier API Token: " ZEROTIER_API_TOKEN
+    while [[ -z "$ZEROTIER_API_TOKEN" ]]; do
         log_error "API Token cannot be empty"
-        read -s -p "ZeroTier API Token: " ZEROTIER_API_TOKEN
-        echo
+        read_password "ZeroTier API Token: " ZEROTIER_API_TOKEN
     done
 
-    read -p "ZeroTier IP for this node: " ZEROTIER_IP
-    while ! [[ "$ZEROTIER_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    read_input "ZeroTier IP for this node: " ZEROTIER_IP
+    while ! [[ "$ZEROTIER_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; do
         log_error "Invalid IP format"
-        read -p "ZeroTier IP for this node: " ZEROTIER_IP
+        read_input "ZeroTier IP for this node: " ZEROTIER_IP
     done
 fi
 

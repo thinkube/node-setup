@@ -7,7 +7,7 @@ Bootstrap script for preparing Ubuntu nodes for remote Thinkube installation via
 Run this command on each Ubuntu node you want to prepare for Thinkube:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | sudo bash
 ```
 
 ## What This Does
@@ -38,7 +38,7 @@ curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.s
 ### Step 2: Run Bootstrap on Each Node
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/thinkube/node-setup/main/bootstrap.sh | sudo bash
 ```
 
 **Important**: Choose static IPs outside your DHCP range. Common examples:
@@ -112,15 +112,15 @@ sudo systemctl status ssh
 # Check firewall
 sudo ufw status
 
-# Verify user exists
-id thinkube
+# Verify user exists (it will use your existing Ubuntu user)
+id $USER
 ```
 
 ## Security Notes
 
 - The bootstrap script doesn't store any secrets
 - ZeroTier API token is only used during setup
-- Creates a dedicated `thinkube` user for Ansible
+- Uses your existing Ubuntu user for Ansible automation
 - All ZeroTier traffic is encrypted
 - Nodes must be explicitly authorized in your network
 
@@ -132,4 +132,4 @@ For issues or questions:
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file
+Apache License 2.0 - See [LICENSE](LICENSE) file
