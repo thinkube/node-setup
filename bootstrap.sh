@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.1.1"
+VERSION="0.1.2"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -286,7 +286,29 @@ echo "y" | ufw enable || true
 if [ "$INSTALL_ZEROTIER" = true ]; then
     log_step "Installing ZeroTier"
 
-    # Use the official installation method that works on Ubuntu 24.04
+    # Check if ZeroTier is already installed but broken
+    if command -v zerotier-cli &> /dev/null; then
+        if ! zerotier-cli status &> /dev/null; then
+            log_warn "Detected broken ZeroTier installation, cleaning up..."
+            systemctl stop zerotier-one 2>/dev/null || true
+            systemctl disable zerotier-one 2>/dev/null || true
+            apt-get remove --purge zerotier-one -y 2>/dev/null || true
+            rm -rf /var/lib/zerotier-one
+            rm -f /etc/apt/sources.list.d/zerotier.list
+            rm -f /usr/share/keyrings/zerotier.gpg
+            apt-get update
+        fi
+    fi
+
+    # Install compatibility library for Ubuntu 24.04
+    log_info "Installing OpenSSL compatibility library for Ubuntu 24.04..."
+    
+    # Download and install libssl1.1 which ZeroTier needs
+    wget -q http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb
+    dpkg -i libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb || apt-get install -f -y
+    rm -f libssl1.1_1.1.1f-1ubuntu2.23_amd64.deb
+    
+    # Use the official installation method
     curl -s https://install.zerotier.com | bash || {
         log_error "Failed to install ZeroTier using official installer"
         log_info "Trying alternative method..."
