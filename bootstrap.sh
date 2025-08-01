@@ -9,7 +9,7 @@
 set -e
 
 # Script version
-VERSION="0.2.1"
+VERSION="0.2.0"
 
 # Function to read input that works with piped scripts
 read_input() {
@@ -150,7 +150,7 @@ fi
 # Welcome message
 clear
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║        Thinkube Node Bootstrap v${VERSION}              ║"
+echo "║         Thinkube Node Bootstrap v${VERSION}         ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
 if [ "$INSTALL_ZEROTIER" = true ]; then
@@ -457,7 +457,7 @@ fi
 # Show status
 echo
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║            ✅ Bootstrap Complete!                     ║"
+echo "║              ✅ Bootstrap Complete!                  ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
 echo "Node Information:"
